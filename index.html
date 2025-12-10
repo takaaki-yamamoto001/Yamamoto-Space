@@ -1,6 +1,987 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>GNSS DOP Heatmap – CelesTrak + satellite.js + TEC</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #050816;
+      color: #f5f5f5;
+    }
+    h1, h2, h3 {
+      margin: 0;
+      letter-spacing: 0.03em;
+    }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; }
+    h3 { font-size: 13px; }
+
+    .page {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .toolbar {
+      padding: 8px 12px;
+      background: rgba(5, 8, 22, 0.96);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      display: grid;
+      grid-template-columns: 2.8fr 2.8fr 2.4fr 3fr;
+      grid-gap: 10px;
+      align-items: flex-start;
+      z-index: 1000;
+    }
+
+    .toolbar-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-start;
+      font-size: 11px;
+    }
+
+    .toolbar-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      align-items: center;
+    }
+
+    .toolbar label {
+      font-size: 11px;
+      opacity: 0.9;
+      white-space: nowrap;
+    }
+
+    .toolbar input[type="number"],
+    .toolbar select,
+    .toolbar textarea {
+      font-size: 11px;
+      padding: 2px 4px;
+      background: #0b1020;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 4px;
+      color: #f5f5f5;
+    }
+
+    .toolbar textarea {
+      width: 100%;
+      resize: vertical;
+      min-height: 40px;
+      max-height: 120px;
+    }
+
+    .toolbar input[type="color"] {
+      width: 24px;
+      height: 18px;
+      padding: 0;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: transparent;
+    }
+
+    .toolbar input[type="range"] {
+      width: 120px;
+    }
+
+    .toolbar button {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: none;
+      background: linear-gradient(135deg, #3b82f6, #22c55e);
+      color: #fff;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .toolbar button:hover {
+      opacity: 0.9;
+    }
+
+    .map-container {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+    }
+
+    #map {
+      position: absolute;
+      inset: 0;
+      z-index: 200;
+    }
+
+    .leaflet-overlay-pane svg .dop-cell {
+      stroke-width: 0;
+    }
+
+    .status-bar {
+      position: absolute;
+      left: 10px;
+      bottom: 8px;
+      z-index: 900;
+      padding: 6px 10px;
+      background: rgba(5, 8, 22, 0.85);
+      border-radius: 999px;
+      font-size: 11px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .status-bar span.label {
+      opacity: 0.75;
+    }
+
+    .status-bar span.value {
+      font-variant-numeric: tabular-nums;
+    }
+
+    #statusText {
+      position: absolute;
+      right: 10px;
+      bottom: 8px;
+      z-index: 900;
+      padding: 6px 10px;
+      background: rgba(127, 29, 29, 0.9);
+      color: #fecaca;
+      font-size: 11px;
+      border-radius: 8px;
+      max-width: 360px;
+      display: none;
+    }
+
+    .colorbar-preview {
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);
+      margin-top: 2px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .checkbox-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+      font-size: 11px;
+    }
+    .checkbox-row label span {
+      margin-left: 2px;
+    }
+
+    .chip {
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.2);
+      font-size: 10px;
+      opacity: 0.8;
+    }
+  </style>
+</head>
 <body>
-<h1>Hello Yamamoto-space</h1>
+  <div class="page">
+    <div class="toolbar">
+      <!-- GNSS & DOP -->
+      <div class="toolbar-group">
+        <div class="toolbar-row">
+          <div class="checkbox-row">
+            <label><input type="checkbox" class="sys-check" value="gps" checked><span>GPS</span></label>
+            <label><input type="checkbox" class="sys-check" value="galileo" checked><span>Galileo</span></label>
+            <label><input type="checkbox" class="sys-check" value="glonass" checked><span>GLONASS</span></label>
+            <label><input type="checkbox" class="sys-check" value="beidou" checked><span>BeiDou</span></label>
+            <label><input type="checkbox" class="sys-check" value="qzss" checked><span>QZSS</span></label>
+          </div>
+        </div>
+        <div class="toolbar-row">
+          <label>
+            DOP:
+            <select id="dopType">
+              <option value="GDOP">GDOP</option>
+              <option value="PDOP">PDOP</option>
+              <option value="HDOP">HDOP</option>
+              <option value="VDOP">VDOP</option>
+            </select>
+          </label>
+          <label>
+            仰角マスク(°):
+            <input id="elevMask" type="number" value="15" min="0" max="45" step="1" />
+          </label>
+          <label>
+            基準高度(km):
+            <input id="obsHeightKm" type="number" value="0" step="0.1" />
+          </label>
+        </div>
+      </div>
+
+      <!-- 時間オフセット & フォーカス -->
+      <div class="toolbar-group">
+        <div class="toolbar-row">
+          <label>
+            時間オフセット(h, -120〜+120):
+            <!-- 10分刻み (1/6 h) -->
+            <input id="timeOffsetHours" type="range" min="-120" max="120" step="0.1666667" value="0" />
+          </label>
+        </div>
+        <div class="toolbar-row">
+          <span id="timeOffsetLabel" style="font-size:11px;min-width:90px;">Δt = 0.0 h</span>
+          <span id="utcTimeLabel" style="font-size:11px;white-space:nowrap;">UTC: -</span>
+          <button id="resetTime">Δt=0</button>
+        </div>
+        <div class="toolbar-row">
+          <label>
+            フォーカス:
+            <select id="focusRegion">
+              <option value="world">World</option>
+              <option value="japan">Japan</option>
+              <option value="us">USA</option>
+              <option value="europe">Europe</option>
+              <option value="australia">Australia</option>
+              <option value="southamerica">South America</option>
+              <option value="africa">Africa</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- カラーバー & 透明度 -->
+      <div class="toolbar-group">
+        <div class="toolbar-row">
+          <label>
+            DOP min:
+            <input id="dopMin" type="number" value="0.5" step="0.1" />
+          </label>
+          <label>
+            DOP max:
+            <input id="dopMax" type="number" value="10" step="0.5" />
+          </label>
+        </div>
+        <div class="toolbar-row">
+          <label>
+            色(低):
+            <input id="colorLow" type="color" value="#22c55e" />
+          </label>
+          <label>
+            色(中):
+            <input id="colorMid" type="color" value="#eab308" />
+          </label>
+          <label>
+            色(高):
+            <input id="colorHigh" type="color" value="#ef4444" />
+          </label>
+        </div>
+        <div class="colorbar-preview" id="colorbarPreview"></div>
+        <div class="toolbar-row">
+          <label>
+            ヒートマップ透明度:
+            <input id="alphaSlider" type="range" min="0.1" max="1" step="0.05" value="0.7" />
+          </label>
+          <span id="alphaLabel" style="font-size:11px;">α = 0.70</span>
+        </div>
+        <div class="toolbar-row">
+          <button id="reloadTle">TLE更新</button>
+          <button id="recalcBtn">再計算</button>
+        </div>
+      </div>
+
+      <!-- ★ TECU 予報入力 & DOP反映 -->
+      <div class="toolbar-group">
+        <div class="toolbar-row" style="justify-content:space-between;width:100%;">
+          <span class="chip">TECU予報インプット → DOP補正</span>
+        </div>
+        <div class="toolbar-row" style="width:100%;">
+          <textarea id="tecInput" placeholder="例: lat,lon,tec&#10;35,140,40&#10;40,140,60"></textarea>
+        </div>
+        <div class="toolbar-row">
+          <button id="loadTecBtn">TEC読み込み</button>
+          <label style="display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="useTecCheckbox" />
+            <span>TEC反映</span>
+          </label>
+        </div>
+        <div class="toolbar-row">
+          <label>
+            TEC基準(TECU):
+            <input id="tecRef" type="number" value="20" step="1" style="width:60px;" />
+          </label>
+          <label title="(TEC-TEC基準)/TEC基準 × β">
+            β(感度):
+            <input id="tecBeta" type="number" value="0.5" step="0.1" style="width:60px;" />
+          </label>
+        </div>
+        <div class="toolbar-row" style="font-size:10px;opacity:0.8;max-width:260px;">
+          DOP補正式: DOP_eff = DOP_geom × (1 + β × (TEC − TEC基準) / TEC基準)<br/>
+          ※ 数式はあとで好きに調整してOK
+        </div>
+      </div>
+    </div>
+
+    <div class="map-container">
+      <div id="map"></div>
+      <div class="status-bar">
+        <span class="label">エポック:</span>
+        <span class="value" id="epochLabel">読み込み中...</span>
+        <span class="label">可視衛星数(東京):</span>
+        <span class="value" id="visibleTokyoLabel">–</span>
+        <span class="label">DOP(東京):</span>
+        <span class="value" id="dopTokyoLabel">–</span>
+      </div>
+      <div id="statusText"></div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin="">
+  </script>
+
+  <!-- satellite.js (SGP4) -->
+  <script src="https://unpkg.com/satellite.js@5.0.0/dist/satellite.min.js"></script>
+
+  <script>
+    // ====== 設定 ======
+    const systemsConfig = {
+      gps:     { label: "GPS",     group: "gps-ops" },
+      galileo: { label: "Galileo", group: "galileo" },
+      glonass: { label: "GLONASS", group: "glonass" },
+      beidou:  { label: "BeiDou",  group: "beidou" },
+      qzss:    { label: "QZSS",    group: "qzss" }
+    };
+
+    const LAT_STEP = 10;
+    const LON_STEP = 10;
+
+    let allSatellites = [];
+    let lastTleEpochText = "–";
+    let dopLayer = null;
+    let currentAlpha = 0.7;
+
+    // ★ TEC グリッド
+    // tecGrid = [{lat, lon, tec}, ...]
+    let tecGrid = [];
+    let tecLoaded = false;
+
+    const baseTime = new Date();
+
+    const dopTypeSel   = document.getElementById("dopType");
+    const elevMaskEl   = document.getElementById("elevMask");
+    const obsHeightEl  = document.getElementById("obsHeightKm");
+    const timeOffsetEl = document.getElementById("timeOffsetHours");
+    const timeOffsetLabel = document.getElementById("timeOffsetLabel");
+    const utcTimeLabel = document.getElementById("utcTimeLabel");
+    const focusRegionEl   = document.getElementById("focusRegion");
+    const dopMinEl    = document.getElementById("dopMin");
+    const dopMaxEl    = document.getElementById("dopMax");
+    const colorLowEl  = document.getElementById("colorLow");
+    const colorMidEl  = document.getElementById("colorMid");
+    const colorHighEl = document.getElementById("colorHigh");
+    const colorbarPreview = document.getElementById("colorbarPreview");
+    const alphaSlider = document.getElementById("alphaSlider");
+    const alphaLabel  = document.getElementById("alphaLabel");
+    const reloadTleBtn= document.getElementById("reloadTle");
+    const recalcBtn   = document.getElementById("recalcBtn");
+    const epochLabel  = document.getElementById("epochLabel");
+    const visibleTokyoLabel = document.getElementById("visibleTokyoLabel");
+    const dopTokyoLabel     = document.getElementById("dopTokyoLabel");
+    const statusText  = document.getElementById("statusText");
+    const sysChecks   = document.querySelectorAll(".sys-check");
+
+    const tecInputEl  = document.getElementById("tecInput");
+    const loadTecBtn  = document.getElementById("loadTecBtn");
+    const useTecCheckbox = document.getElementById("useTecCheckbox");
+    const tecRefEl    = document.getElementById("tecRef");
+    const tecBetaEl   = document.getElementById("tecBeta");
+
+    const map = L.map("map", {
+      worldCopyJump: true,
+      center: [35, 140],
+      zoom: 3
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 8,
+      minZoom: 2,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    dopLayer = L.layerGroup().addTo(map);
+
+    function setStatus(msg, isError = false) {
+      if (!msg) {
+        statusText.style.display = "none";
+        statusText.textContent = "";
+        return;
+      }
+      statusText.style.display = "block";
+      statusText.textContent = msg;
+      statusText.style.background = isError ? "rgba(127,29,29,0.9)" : "rgba(15,23,42,0.9)";
+      statusText.style.color = isError ? "#fecaca" : "#e5e7eb";
+    }
+
+    function hexToRgb(hex) {
+      const m = hex.replace("#", "");
+      const bigint = parseInt(m, 16);
+      const r = (bigint >> 16) & 255;
+      const g = (bigint >> 8) & 255;
+      const b = bigint & 255;
+      return { r, g, b };
+    }
+
+    function interpColor(c1, c2, t) {
+      return {
+        r: Math.round(c1.r + (c2.r - c1.r) * t),
+        g: Math.round(c1.g + (c2.g - c1.g) * t),
+        b: Math.round(c1.b + (c2.b - c1.b) * t)
+      };
+    }
+
+    function colorForDop(value, minV, maxV, lowHex, midHex, highHex) {
+      if (value == null || isNaN(value)) return "rgba(0,0,0,0)";
+      if (value <= minV) value = minV;
+      if (value >= maxV) value = maxV;
+      const t = (value - minV) / (maxV - minV + 1e-9);
+      const low = hexToRgb(lowHex);
+      const mid = hexToRgb(midHex);
+      const high = hexToRgb(highHex);
+
+      let c;
+      if (t < 0.5) {
+        c = interpColor(low, mid, t * 2);
+      } else {
+        c = interpColor(mid, high, (t - 0.5) * 2);
+      }
+      return `rgba(${c.r},${c.g},${c.b},${currentAlpha})`;
+    }
+
+    function updateColorbarPreview() {
+      const low = colorLowEl.value;
+      const mid = colorMidEl.value;
+      const high = colorHighEl.value;
+      colorbarPreview.style.background = `linear-gradient(90deg, ${low}, ${mid}, ${high})`;
+    }
+
+    updateColorbarPreview();
+    colorLowEl.addEventListener("input", updateColorbarPreview);
+    colorMidEl.addEventListener("input", updateColorbarPreview);
+    colorHighEl.addEventListener("input", updateColorbarPreview);
+
+    function formatUtc(dt) {
+      const y  = dt.getUTCFullYear();
+      const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+      const d  = String(dt.getUTCDate()).padStart(2, "0");
+      const h  = String(dt.getUTCHours()).padStart(2, "0");
+      const m  = String(dt.getUTCMinutes()).padStart(2, "0");
+      return `${y}-${mo}-${d} ${h}:${m} UTC`;
+    }
+
+    function updateTimeOffsetLabelAndUtc() {
+      const v = parseFloat(timeOffsetEl.value) || 0;
+      timeOffsetLabel.textContent = `Δt = ${v.toFixed(1)} h`;
+      const t = new Date(baseTime.getTime() + v * 3600 * 1000);
+      utcTimeLabel.textContent = `UTC: ${formatUtc(t)}`;
+    }
+
+    updateTimeOffsetLabelAndUtc();
+
+    timeOffsetEl.addEventListener("input", () => {
+      updateTimeOffsetLabelAndUtc();
+      // 再計算はしない（重いので）
+    });
+
+    document.getElementById("resetTime").addEventListener("click", () => {
+      timeOffsetEl.value = 0;
+      updateTimeOffsetLabelAndUtc();
+    });
+
+    function updateAlpha() {
+      currentAlpha = parseFloat(alphaSlider.value);
+      alphaLabel.textContent = `α = ${currentAlpha.toFixed(2)}`;
+      dopLayer.eachLayer(layer => {
+        if (layer.setStyle) {
+          layer.setStyle({ fillOpacity: currentAlpha });
+        }
+      });
+    }
+    updateAlpha();
+    alphaSlider.addEventListener("input", updateAlpha);
+
+    focusRegionEl.addEventListener("change", () => {
+      const v = focusRegionEl.value;
+      switch (v) {
+        case "world":        map.setView([20, 0], 2);   break;
+        case "japan":        map.setView([36, 138], 5); break;
+        case "us":           map.setView([39, -100], 4);break;
+        case "europe":       map.setView([50, 10], 4);  break;
+        case "australia":    map.setView([-25, 135], 4);break;
+        case "southamerica": map.setView([-15, -60], 4);break;
+        case "africa":       map.setView([0, 20], 4);   break;
+      }
+    });
+
+    async function fetchTleGroup(groupName) {
+      const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(groupName)}&FORMAT=tle`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`TLE取得失敗: ${groupName} (${res.status})`);
+      }
+      const text = await res.text();
+      return text;
+    }
+
+    function parseTleText(tleText, systemKey) {
+      const lines = tleText
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+
+      const sats = [];
+      let tmpName = null;
+      let satIndex = 0;
+
+      for (let i = 0; i < lines.length; ) {
+        const line = lines[i];
+
+        if (!line.startsWith("1 ") && !line.startsWith("2 ")) {
+          tmpName = line;
+          i++;
+          continue;
+        }
+
+        if (line.startsWith("1 ") && (i + 1) < lines.length && lines[i + 1].startsWith("2 ")) {
+          const l1 = lines[i];
+          const l2 = lines[i + 1];
+
+          const name = tmpName || `${systemKey.toUpperCase()}-${++satIndex}`;
+
+          try {
+            const satrec = satellite.twoline2satrec(l1, l2);
+            sats.push({ name, system: systemKey, satrec });
+          } catch (e) {
+            console.warn("TLE parse error", name, e);
+          }
+
+          tmpName = null;
+          i += 2;
+          continue;
+        }
+
+        i++;
+      }
+
+      return sats;
+    }
+
+    async function loadSelectedTles() {
+      setStatus("TLE取得中 (CelesTrak)...", false);
+      allSatellites = [];
+      let epochTexts = [];
+
+      const selectedSystems = [];
+      sysChecks.forEach(ch => {
+        if (ch.checked) selectedSystems.push(ch.value);
+      });
+
+      if (selectedSystems.length === 0) {
+        setStatus("少なくとも1つのGNSSシステムを選択してください。", true);
+        return;
+      }
+
+      try {
+        for (const key of selectedSystems) {
+          const cfg = systemsConfig[key];
+          if (!cfg) continue;
+          const text = await fetchTleGroup(cfg.group);
+          const sats = parseTleText(text, key);
+          allSatellites.push(...sats);
+
+          const line1 = text.split(/\r?\n/).find(l => l.startsWith("1 "));
+          if (line1) {
+            epochTexts.push(line1.substring(18, 32).trim());
+          }
+        }
+        if (allSatellites.length === 0) {
+          setStatus("TLEがパースできませんでした。", true);
+          return;
+        }
+        lastTleEpochText = epochTexts.join(", ");
+        epochLabel.textContent = lastTleEpochText || "–";
+        setStatus("TLE取得完了。再計算ボタンでDOPを更新できます。", false);
+      } catch (err) {
+        console.error(err);
+        setStatus("TLE取得時にエラーが発生しました: " + err.message, true);
+      }
+    }
+
+    reloadTleBtn.addEventListener("click", () => {
+      loadSelectedTles().then(() => {
+        recalcDopHeatmap();
+      });
+    });
+
+    function computeDopsFromMatrix(G) {
+      const n = G.length;
+      if (n < 4) {
+        return { GDOP: null, PDOP: null, HDOP: null, VDOP: null };
+      }
+      const GTG = [
+        [0,0,0,0],
+        [0,0,0,0],
+        [0,0,0,0],
+        [0,0,0,0]
+      ];
+
+      for (let i = 0; i < n; i++) {
+        const row = G[i];
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 4; c++) {
+            GTG[r][c] += row[r] * row[c];
+          }
+        }
+      }
+
+      const Q = invert4(GTG);
+      if (!Q) {
+        return { GDOP: null, PDOP: null, HDOP: null, VDOP: null };
+      }
+
+      const qxx = Q[0][0];
+      const qyy = Q[1][1];
+      const qzz = Q[2][2];
+      const qtt = Q[3][3];
+
+      const GDOP = Math.sqrt(Math.max(qxx + qyy + qzz + qtt, 0));
+      const PDOP = Math.sqrt(Math.max(qxx + qyy + qzz, 0));
+      const HDOP = Math.sqrt(Math.max(qxx + qyy, 0));
+      const VDOP = Math.sqrt(Math.max(qzz, 0));
+
+      return { GDOP, PDOP, HDOP, VDOP };
+    }
+
+    function invert4(M) {
+      const A = [
+        [...M[0], 1,0,0,0],
+        [...M[1], 0,1,0,0],
+        [...M[2], 0,0,1,0],
+        [...M[3], 0,0,0,1]
+      ];
+
+      const N = 4;
+      for (let i = 0; i < N; i++) {
+        let maxRow = i;
+        let maxVal = Math.abs(A[i][i]);
+        for (let r = i+1; r < N; r++) {
+          const v = Math.abs(A[r][i]);
+          if (v > maxVal) {
+            maxVal = v; maxRow = r;
+          }
+        }
+        if (maxVal < 1e-12) return null;
+        if (maxRow !== i) {
+          const tmp = A[i];
+          A[i] = A[maxRow];
+          A[maxRow] = tmp;
+        }
+
+        const pivot = A[i][i];
+        for (let c = 0; c < 8; c++) A[i][c] /= pivot;
+
+        for (let r = 0; r < N; r++) {
+          if (r === i) continue;
+          const factor = A[r][i];
+          for (let c = 0; c < 8; c++) {
+            A[r][c] -= factor * A[i][c];
+          }
+        }
+      }
+
+      const inv = [
+        [A[0][4],A[0][5],A[0][6],A[0][7]],
+        [A[1][4],A[1][5],A[1][6],A[1][7]],
+        [A[2][4],A[2][5],A[2][6],A[2][7]],
+        [A[3][4],A[3][5],A[3][6],A[3][7]]
+      ];
+      return inv;
+    }
+
+    // ====== TEC グリッド関連 ======
+
+    // TEC CSV をパース
+    function parseTecCsv(text) {
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length === 0) return [];
+
+      const result = [];
+      let startIdx = 0;
+
+      // 先頭行にヘッダらしき文字が含まれていたらスキップ
+      if (/[a-zA-Z]/.test(lines[0])) {
+        startIdx = 1;
+      }
+
+      for (let i = startIdx; i < lines.length; i++) {
+        const cols = lines[i].split(/[,\s]+/).map(c => c.trim());
+        if (cols.length < 3) continue;
+        const lat = parseFloat(cols[0]);
+        const lon = parseFloat(cols[1]);
+        const tec = parseFloat(cols[2]);
+        if (!isFinite(lat) || !isFinite(lon) || !isFinite(tec)) continue;
+        result.push({ lat, lon, tec });
+      }
+      return result;
+    }
+
+    // 指定地点に最も近い TEC を取得（単純Nearest Neighbor）
+    function getTecAt(latDeg, lonDeg) {
+      if (!tecLoaded || !tecGrid || tecGrid.length === 0) return null;
+
+      let best = null;
+      let bestDist2 = Infinity;
+      for (const p of tecGrid) {
+        const dLat = latDeg - p.lat;
+        let dLon = lonDeg - p.lon;
+        if (dLon > 180) dLon -= 360;
+        if (dLon < -180) dLon += 360;
+        const dist2 = dLat*dLat + dLon*dLon;
+        if (dist2 < bestDist2) {
+          bestDist2 = dist2;
+          best = p;
+        }
+      }
+      // TECデータからあまりに遠い場合は無効とする（しきい値は適当）
+      if (bestDist2 > 30*30) return null; // 30度以上離れていたら無視
+      return best.tec;
+    }
+
+    // DOP値にTEC補正をかける
+    function applyTecToDop(dopVal, latDeg, lonDeg) {
+      if (!useTecCheckbox.checked) return dopVal;
+      if (!tecLoaded) return dopVal;
+      if (dopVal == null || !isFinite(dopVal)) return dopVal;
+
+      const tec = getTecAt(latDeg, lonDeg);
+      if (tec == null || !isFinite(tec)) return dopVal;
+
+      const tecRef = parseFloat(tecRefEl.value) || 20;
+      const beta   = parseFloat(tecBetaEl.value) || 0.5;
+
+      const ratio = (tec - tecRef) / tecRef;
+      const factor = 1 + beta * ratio;
+
+      const limitedFactor = Math.max(0.3, Math.min(factor, 5.0));
+
+      return dopVal * limitedFactor;
+    }
+
+    loadTecBtn.addEventListener("click", () => {
+      const txt = tecInputEl.value.trim();
+      if (!txt) {
+        setStatus("TEC入力欄が空です。lat,lon,tec の形式で貼り付けてください。", true);
+        return;
+      }
+      const parsed = parseTecCsv(txt);
+      if (!parsed || parsed.length === 0) {
+        setStatus("TECデータのパースに失敗しました。形式を確認してください。", true);
+        return;
+      }
+      tecGrid = parsed;
+      tecLoaded = true;
+      setStatus(`TECデータを読み込みました（ポイント数: ${tecGrid.length}）。「TEC反映」にチェックを入れるとDOPに補正がかかります。`, false);
+    });
+
+    // ====== DOP計算 ======
+
+    function computeDopAtLocation(latDeg, lonDeg, heightKm, time, elevMaskDeg) {
+      if (!allSatellites || allSatellites.length === 0) {
+        return { dops: {GDOP:null,PDOP:null,HDOP:null,VDOP:null}, visibleCount: 0 };
+      }
+
+      const gmst = satellite.gstime(time);
+      const observerGd = {
+        latitude:  satellite.degreesToRadians(latDeg),
+        longitude: satellite.degreesToRadians(lonDeg),
+        height:    heightKm
+      };
+
+      const G = [];
+      let visibleCount = 0;
+
+      for (const sat of allSatellites) {
+        const prop = satellite.propagate(sat.satrec, time);
+        if (!prop.position) continue;
+        const positionEci = prop.position;
+        const positionEcf = satellite.eciToEcf(positionEci, gmst);
+        const look = satellite.ecfToLookAngles(observerGd, positionEcf);
+        const elevDeg = satellite.radiansToDegrees(look.elevation);
+        if (elevDeg < elevMaskDeg) continue;
+
+        visibleCount++;
+
+        const az = look.azimuth;
+        const el = look.elevation;
+        const cosEl = Math.cos(el);
+        const sinEl = Math.sin(el);
+
+        const eComp = cosEl * Math.sin(az);
+        const nComp = cosEl * Math.cos(az);
+        const uComp = sinEl;
+
+        G.push([eComp, nComp, uComp, 1.0]);
+      }
+
+      const dopsGeom = computeDopsFromMatrix(G);
+      return { dops: dopsGeom, visibleCount };
+    }
+
+    function recalcDopHeatmap() {
+      if (!allSatellites || allSatellites.length === 0) {
+        setStatus("まず「TLE更新」で衛星を読み込んでください。", true);
+        return;
+      }
+
+      const dopType = dopTypeSel.value;
+      const elevMask = parseFloat(elevMaskEl.value) || 15;
+      const obsHeightKm = parseFloat(obsHeightEl.value) || 0;
+
+      const dopMin = parseFloat(dopMinEl.value) || 0.5;
+      const dopMax = parseFloat(dopMaxEl.value) || 10;
+      const lowC  = colorLowEl.value;
+      const midC  = colorMidEl.value;
+      const highC = colorHighEl.value;
+
+      const dtHours = parseFloat(timeOffsetEl.value) || 0;
+      const time = new Date(baseTime.getTime() + dtHours * 3600 * 1000);
+
+      setStatus("DOP計算中...", false);
+
+      dopLayer.clearLayers();
+
+      // 東京のDOPを計算（TEC補正も適用）
+      const tokyoRaw = computeDopAtLocation(35.68, 139.76, obsHeightKm, time, elevMask);
+      const tokDopsGeom  = tokyoRaw.dops;
+      visibleTokyoLabel.textContent = tokyoRaw.visibleCount.toString();
+
+      if (tokDopsGeom.GDOP == null) {
+        dopTokyoLabel.textContent = "–";
+      } else {
+        const gEff = applyTecToDop(tokDopsGeom.GDOP, 35.68, 139.76);
+        const pEff = applyTecToDop(tokDopsGeom.PDOP, 35.68, 139.76);
+        const hEff = applyTecToDop(tokDopsGeom.HDOP, 35.68, 139.76);
+        const vEff = applyTecToDop(tokDopsGeom.VDOP, 35.68, 139.76);
+
+        const txt = [
+          `G:${gEff.toFixed(1)}`,
+          `P:${pEff.toFixed(1)}`,
+          `H:${hEff.toFixed(1)}`,
+          `V:${vEff.toFixed(1)}`
+        ].join(" ");
+        dopTokyoLabel.textContent = txt;
+      }
+
+      for (let lat = -80; lat <= 80; lat += LAT_STEP) {
+        for (let lon = -180; lon < 180; lon += LON_STEP) {
+          const centerLat = lat + LAT_STEP / 2;
+          const centerLon = lon + LON_STEP / 2;
+
+          const { dops } = computeDopAtLocation(centerLat, centerLon, obsHeightKm, time, elevMask);
+          let val = dops[dopType] || null;
+          if (val == null || !isFinite(val)) continue;
+
+          // ★ TEC補正をDOPに反映
+          val = applyTecToDop(val, centerLat, centerLon);
+
+          const color = colorForDop(val, dopMin, dopMax, lowC, midC, highC);
+
+          const bounds = [
+            [lat, lon],
+            [lat + LAT_STEP, lon + LON_STEP]
+          ];
+
+          const rect = L.rectangle(bounds, {
+            stroke: false,
+            fillColor: color,
+            fillOpacity: currentAlpha,
+            interactive: false,
+            className: "dop-cell"
+          });
+          dopLayer.addLayer(rect);
+        }
+      }
+
+      setStatus(`DOP計算完了 (Δt=${dtHours.toFixed(1)}h, 仰角≥${elevMask.toFixed(0)}°, TEC反映:${useTecCheckbox.checked ? "ON" : "OFF"})。`, false);
+    }
+
+    recalcBtn.addEventListener("click", () => {
+      recalcDopHeatmap();
+    });
+
+    map.on("click", (e) => {
+      if (!allSatellites || allSatellites.length === 0) {
+        L.popup()
+          .setLatLng(e.latlng)
+          .setContent("まず TLE を読み込んでください。")
+          .openOn(map);
+        return;
+      }
+      const elevMask = parseFloat(elevMaskEl.value) || 15;
+      const obsHeightKm = parseFloat(obsHeightEl.value) || 0;
+      const dtHours = parseFloat(timeOffsetEl.value) || 0;
+      const time = new Date(baseTime.getTime() + dtHours * 3600 * 1000);
+
+      const { dops, visibleCount } = computeDopAtLocation(
+        e.latlng.lat,
+        e.latlng.lng,
+        obsHeightKm,
+        time,
+        elevMask
+      );
+      if (dops.GDOP == null) {
+        L.popup()
+          .setLatLng(e.latlng)
+          .setContent(`緯度 ${e.latlng.lat.toFixed(2)}°, 経度 ${e.latlng.lng.toFixed(2)}°<br/>可視衛星: ${visibleCount}<br/>DOP: 計算不可(衛星不足)`)
+          .openOn(map);
+        return;
+      }
+
+      const gEff = applyTecToDop(dops.GDOP, e.latlng.lat, e.latlng.lng);
+      const pEff = applyTecToDop(dops.PDOP, e.latlng.lat, e.latlng.lng);
+      const hEff = applyTecToDop(dops.HDOP, e.latlng.lat, e.latlng.lng);
+      const vEff = applyTecToDop(dops.VDOP, e.latlng.lat, e.latlng.lng);
+
+      const html = `
+        緯度 ${e.latlng.lat.toFixed(2)}°, 経度 ${e.latlng.lng.toFixed(2)}°<br/>
+        可視衛星: ${visibleCount}<br/>
+        GDOP: ${gEff.toFixed(2)}<br/>
+        PDOP: ${pEff.toFixed(2)}<br/>
+        HDOP: ${hEff.toFixed(2)}<br/>
+        VDOP: ${vEff.toFixed(2)}
+      `;
+      L.popup()
+        .setLatLng(e.latlng)
+        .setContent(html)
+        .openOn(map);
+    });
+
+    (async () => {
+      setStatus("初期TLEを取得しています (CelesTrak GNSS)...", false);
+      await loadSelectedTles();
+      recalcDopHeatmap();
+    })();
+  </script>
 </body>
 </html>
